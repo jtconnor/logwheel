@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,20 +13,16 @@ import (
 	"time"
 )
 
-const version = "1.0.1"
+const version = "1.0.2"
 
 func open(path string) (*os.File, int64) {
 	if fileInfo, err := os.Stat(path); err == nil {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0666)
-		if err != nil {
-			panic(err)
-		}
+		Check(err, "Failed to open log file for appending")
 		return f, fileInfo.Size()
 	} else if os.IsNotExist(err) {
 		f, err := os.Create(path)
-		if err != nil {
-			panic(err)
-		}
+		Check(err, "Failed to create output log file")
 		return f, 0
 	} else {
 		panic(err)
@@ -36,13 +33,9 @@ type oldestFirst []string
 
 func timestampSuffix(s string) int64 {
 	pieces := strings.Split(s, ".")
-	if len(pieces) < 2 {
-		panic(fmt.Errorf("Missing timestamp suffix: %s", s))
-	}
+	Assert(len(pieces) < 2, fmt.Sprintf("Missing timestamp suffix: %s", s))
 	t, err := strconv.ParseInt(pieces[len(pieces)-1], 10, 64)
-	if err != nil {
-		panic(err)
-	}
+	Check(err, fmt.Sprintf("Failed to parse timestamp suffix from: %s", s))
 	return t
 }
 
@@ -53,9 +46,7 @@ func (s oldestFirst) Less(i, j int) bool {
 }
 
 func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
-	if err := f.Close(); err != nil {
-		panic(err)
-	}
+	Check(f.Close(), "Failed to close output log file")
 
 	now := time.Now()
 	rotatedPath := fmt.Sprintf("%s.%d", path, now.UnixNano())
@@ -64,9 +55,7 @@ func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
 	// Clean up old rotated files.
 	globPattern := path + ".*"
 	rotatedFiles, err := filepath.Glob(globPattern)
-	if err != nil {
-		panic(err)
-	}
+	Check(err, "Failed to look for old/rotated log files")
 	sort.Sort(oldestFirst(rotatedFiles))
 	if len(rotatedFiles) > maxOldFiles {
 		for _, staleFile := range rotatedFiles[:len(rotatedFiles)-maxOldFiles] {
@@ -76,6 +65,31 @@ func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
 
 	// Open a new file to write to.
 	return open(path)
+}
+
+type VError struct {
+	message string
+	child   error
+}
+
+func (e VError) Error() string {
+	return fmt.Sprintf("%s: %s", e.message, e.child.Error())
+}
+
+func NewVError(message string, child error) VError {
+	return VError{message, child}
+}
+
+func Check(err error, message string) {
+	if err != nil {
+		panic(NewVError(message, err))
+	}
+}
+
+func Assert(condition bool, message string) {
+	if !condition {
+		panic(errors.New(message))
+	}
 }
 
 func main() {
@@ -91,17 +105,13 @@ func main() {
 		fmt.Println("github.com/jtconnor/logwheel version " + version)
 		return
 	}
-	if *logPtr == "" {
-		panic(fmt.Errorf("Requires --log"))
-	}
+	Assert(*logPtr == "", "Requires --log")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	f, bytesWritten := open(*logPtr)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if err := scanner.Err(); err != nil {
-			panic(err)
-		}
+		Check(scanner.Err(), "Failed to scan input")
 
 		lineLen := int64(len(line))
 
@@ -117,7 +127,5 @@ func main() {
 		f.WriteString("\n")
 		bytesWritten += lineLen + 1
 	}
-	if err := f.Close(); err != nil {
-		panic(err)
-	}
+	Check(f.Close(), "Failed to close output log file")
 }
