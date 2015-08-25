@@ -53,7 +53,9 @@ func (s oldestFirst) Less(i, j int) bool {
 }
 
 func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
-	f.Close()
+	if err := f.Close(); err != nil {
+		panic(err)
+	}
 
 	now := time.Now()
 	rotatedPath := fmt.Sprintf("%s.%d", path, now.UnixNano())
@@ -114,5 +116,8 @@ func main() {
 		f.WriteString(line)
 		f.WriteString("\n")
 		bytesWritten += lineLen + 1
+	}
+	if err := f.Close(); err != nil {
+		panic(err)
 	}
 }
