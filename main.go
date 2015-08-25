@@ -12,24 +12,34 @@ import (
 	"time"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
-func open(path string) *os.File {
-	f, err := os.Create(path)
-	if err != nil {
+func open(path string) (*os.File, int64) {
+	if fileInfo, err := os.Stat(path); err == nil {
+		f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0666)
+		if err != nil {
+			panic(err)
+		}
+		return f, fileInfo.Size()
+	} else if os.IsNotExist(err) {
+		f, err := os.Create(path)
+		if err != nil {
+			panic(err)
+		}
+		return f, 0
+	} else {
 		panic(err)
 	}
-	return f
 }
 
 type oldestFirst []string
 
-func timestampSuffix(s string) int {
+func timestampSuffix(s string) int64 {
 	pieces := strings.Split(s, ".")
 	if len(pieces) < 2 {
 		panic(fmt.Errorf("Missing timestamp suffix: %s", s))
 	}
-	t, err := strconv.Atoi(pieces[len(pieces)-1])
+	t, err := strconv.ParseInt(pieces[len(pieces)-1], 10, 64)
 	if err != nil {
 		panic(err)
 	}
@@ -42,7 +52,7 @@ func (s oldestFirst) Less(i, j int) bool {
 	return timestampSuffix(s[i]) < timestampSuffix(s[j])
 }
 
-func rotate(f *os.File, path string, maxOldFiles int) *os.File {
+func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
 	f.Close()
 
 	now := time.Now()
@@ -71,7 +81,7 @@ func main() {
 		"Write logs to this path. Rotated files will have a timestamp suffix.")
 	maxOldFilesPtr := flag.Int("max-old-files", 2,
 		"Keep this many of the most recent rotated files and delete the others.")
-	maxBytesPtr := flag.Int("max-bytes", 50*(1<<20),
+	maxBytesPtr := flag.Int64("max-bytes", 50*(1<<20),
 		"Rotate log files at this size.")
 	versionPtr := flag.Bool("version", false, "Print version.")
 	flag.Parse()
@@ -84,25 +94,25 @@ func main() {
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
-	f := open(*logPtr)
-	bytesWritten := 0
+	f, bytesWritten := open(*logPtr)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if err := scanner.Err(); err != nil {
 			panic(err)
 		}
 
-		if len(line) > *maxBytesPtr-1 {
+		lineLen := int64(len(line))
+
+		if lineLen > *maxBytesPtr-1 {
 			line = line[:*maxBytesPtr-1]
 		}
 
-		if bytesWritten+len(line)+1 > *maxBytesPtr {
-			f = rotate(f, *logPtr, *maxOldFilesPtr)
-			bytesWritten = 0
+		if bytesWritten+lineLen+1 > *maxBytesPtr {
+			f, bytesWritten = rotate(f, *logPtr, *maxOldFilesPtr)
 		}
 
 		f.WriteString(line)
 		f.WriteString("\n")
-		bytesWritten += len(line) + 1
+		bytesWritten += lineLen + 1
 	}
 }
