@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const version = "1.0.3"
+const version = "1.0.4"
 
 func open(path string) (*bufio.Writer, *os.File, int64) {
 	if fileInfo, err := os.Stat(path); err == nil {
@@ -38,7 +38,7 @@ type oldestFirst []string
 
 func timestampSuffix(s string) int64 {
 	pieces := strings.Split(s, ".")
-	Assert(len(pieces) < 2, fmt.Sprintf("Missing timestamp suffix: %s", s))
+	Assert(len(pieces) >= 2, fmt.Sprintf("Missing timestamp suffix: %s", s))
 	t, err := strconv.ParseInt(pieces[len(pieces)-1], 10, 64)
 	Check(err, fmt.Sprintf("Failed to parse timestamp suffix from: %s", s))
 	return t
@@ -111,7 +111,7 @@ func main() {
 		fmt.Println("github.com/jtconnor/logwheel version " + version)
 		return
 	}
-	Assert(*logPtr == "", "Requires --log")
+	Assert(*logPtr != "", "Requires --log")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	w, f, bytesWritten := open(*logPtr)
