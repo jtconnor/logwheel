@@ -13,25 +13,20 @@ import (
 	"time"
 )
 
-const version = "1.0.4"
+const version = "1.0.5"
 
-func open(path string) (*bufio.Writer, *os.File, int64) {
+func open(path string) (*os.File, int64) {
 	if fileInfo, err := os.Stat(path); err == nil {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_APPEND, 0666)
 		Check(err, "Failed to open log file for appending")
-		return bufio.NewWriter(f), f, fileInfo.Size()
+		return f, fileInfo.Size()
 	} else if os.IsNotExist(err) {
 		f, err := os.Create(path)
 		Check(err, "Failed to create output log file")
-		return bufio.NewWriter(f), f, 0
+		return f, 0
 	} else {
 		panic(err)
 	}
-}
-
-func close(w *bufio.Writer, f *os.File) {
-	Check(w.Flush(), "Failed to flush output writer")
-	Check(f.Close(), "Failed to close output log file")
 }
 
 type oldestFirst []string
@@ -50,9 +45,8 @@ func (s oldestFirst) Less(i, j int) bool {
 	return timestampSuffix(s[i]) < timestampSuffix(s[j])
 }
 
-func rotate(w *bufio.Writer, f *os.File, path string, maxOldFiles int) (
-	*bufio.Writer, *os.File, int64) {
-	close(w, f)
+func rotate(f *os.File, path string, maxOldFiles int) (*os.File, int64) {
+	Check(f.Close(), "Failed to close output log file")
 
 	now := time.Now()
 	rotatedPath := fmt.Sprintf("%s.%d", path, now.UnixNano())
@@ -114,7 +108,7 @@ func main() {
 	Assert(*logPtr != "", "Requires --log")
 
 	scanner := bufio.NewScanner(os.Stdin)
-	w, f, bytesWritten := open(*logPtr)
+	f, bytesWritten := open(*logPtr)
 	for scanner.Scan() {
 		line := scanner.Text()
 		Check(scanner.Err(), "Failed to scan input")
@@ -126,12 +120,12 @@ func main() {
 		}
 
 		if bytesWritten+lineLen+1 > *maxBytesPtr {
-			w, f, bytesWritten = rotate(w, f, *logPtr, *maxOldFilesPtr)
+			f, bytesWritten = rotate(f, *logPtr, *maxOldFilesPtr)
 		}
 
-		w.WriteString(line)
-		w.WriteString("\n")
+		f.WriteString(line)
+		f.WriteString("\n")
 		bytesWritten += lineLen + 1
 	}
-	close(w, f)
+	Check(f.Close(), "Failed to close output log file")
 }
